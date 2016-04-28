@@ -19,7 +19,7 @@ run_external: all
 	xfce4-terminal -x ~/bin/pause ./${OUT} ${PARAMS}
 
 clean:
-	rm ${OUT} *.o
+	rm -f ${OUT} *.o
 
 .PHONY: all run clean
 

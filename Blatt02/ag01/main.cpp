@@ -64,10 +64,18 @@ int main(int argc, char* argv[]) {
   using namespace std;
   MCP.init(argc, argv);
 
-  test_linkedlist();
-  test_rw_lock();
+  // test_linkedlist();
+  // test_rw_lock();
 
   linkedlist<int> ll;
+  ll.push_back(1);
+  linkedlist<int> ll2{ll};
+  ll2.push_back(2);
+  linkedlist<int> ll3{move(ll2)};
+  ll3.push_back(3);
+  ll3.print();
+  ll2.print();
+  ll.print();
 
   MCP.time_start();
 
