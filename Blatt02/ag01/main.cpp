@@ -67,15 +67,19 @@ int main(int argc, char* argv[]) {
   // test_linkedlist();
   // test_rw_lock();
 
-  linkedlist<int> ll;
+  // using list_t = linkedlist<int, mutex_locking_tag>;
+  // using list_t = linkedlist<int, reader_writer_locking_tag>;
+  using list_t = linkedlist<int, fine_grained_locking_tag>;
+  list_t ll;
   ll.push_back(1);
-  linkedlist<int> ll2{ll};
+  list_t ll2{ll};
   ll2.push_back(2);
-  linkedlist<int> ll3{move(ll2)};
+  list_t ll3{move(ll2)};
   ll3.push_back(3);
   ll3.print();
   ll2.print();
   ll.print();
+
 
   MCP.time_start();
 

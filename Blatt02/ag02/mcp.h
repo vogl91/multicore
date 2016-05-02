@@ -10,6 +10,7 @@ class MCP_CLASS_ {
         int n();
         void time_start();
         void time_stop();
+        void time_print();
     private:
         int threads;
         int elements;
@@ -17,7 +18,7 @@ class MCP_CLASS_ {
         struct timespec timer_end;
         double timer_sum;
         void help(const std::string &p);
-        void time_print();
+        //void time_print();
 };
 
 extern MCP_CLASS_ MCP;

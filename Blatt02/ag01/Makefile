@@ -1,7 +1,7 @@
 OUT			= linkedlist
 PARAMS      = -n 1 -t 1
 CFLAGS 		= -Wall -g
-CPPFLAGS 	= $(CFLAGS) -std=c++14
+CPPFLAGS 	= $(CFLAGS) -std=c++14 -fsanitize=leak
 LIBS		= -lpthread
 CC			= gcc
 CPP			= g++

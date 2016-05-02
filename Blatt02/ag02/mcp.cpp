@@ -79,7 +79,7 @@ void MCP_CLASS_::time_print() {
 }
 
 MCP_CLASS_::~MCP_CLASS_() {
-    time_print();
+    // time_print();
 }
 
 
