@@ -6,7 +6,7 @@ PARAMS      = -n 1000000 -t 1
 # PARAMS      = -n 1000 -t 1
 # PARAMS      = -n 100 -t 1
 # PARAMS      = -n 10 -t 1
-CFLAGS 		= -Wall -g
+CFLAGS 		= -Wall -O2
 CPPFLAGS 	= $(CFLAGS) -std=c++14
 LIBS		= -lpthread
 CC			= gcc

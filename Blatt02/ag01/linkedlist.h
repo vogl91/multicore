@@ -233,7 +233,7 @@ class linkedlist<T, fine_grained_locking_tag> {
 
  public:
   linkedlist() : first(nullptr), last(nullptr) { DBG("linkedlist()"); }
-  linkedlist(const linkedlist& that) : linkedlist{} {
+  linkedlist(const linkedlist& that) : linkedlist() {
     DBG("linkedlist(const linkedlist&)");
     for (auto iter = that.first; iter != nullptr; iter = iter->next) {
       push_back(iter->value);
@@ -256,17 +256,17 @@ class linkedlist<T, fine_grained_locking_tag> {
 
   void push_back(T e) {
     // list empty?
+    rw.lock_write();
     if (last == nullptr) {
-      rw.lock_write();
       first = new node{nullptr, nullptr, e};
       last = first;
-      rw.unlock_write();
     } else {
       last->rw.lock_write();
       last->next = new node{last, nullptr, e};
       last = last->next;
       last->previous->rw.unlock_write();
     }
+    rw.unlock_write();
   }
   T at(int index) {
     assert(first != nullptr);
@@ -274,7 +274,7 @@ class linkedlist<T, fine_grained_locking_tag> {
     for (int i = 0; i < index; ++i) {
       iter->rw.lock_read();
       iter = iter->next;
-      iter->rw.unlock_read();
+      iter->previous->rw.unlock_read();
       assert(iter != nullptr);
     }
     return iter->value;

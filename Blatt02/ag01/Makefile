@@ -1,5 +1,6 @@
 OUT			= linkedlist
-PARAMS      = -n 1 -t 1
+# PARAMS      = -n 10000000 -t 8
+PARAMS      = -n 40000 -t 8
 CFLAGS 		= -Wall -g
 CPPFLAGS 	= $(CFLAGS) -std=c++14 -fsanitize=leak
 LIBS		= -lpthread
