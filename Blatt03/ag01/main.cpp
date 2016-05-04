@@ -43,19 +43,20 @@ class queue {
   }
 
  public:
-  void push_back(T i) {
+  void push_back(T i) {  // TODO
+    auto new_node = std::make_shared<node>(nullptr, i);
     if (head == nullptr) {
-      head = std::unique_ptr<node>{new node{nullptr, i}};
+      head = new_node;
     } else {
       auto last = get_last_or_nullptr();
-      last->next = std::unique_ptr<node>{new node{nullptr, i}};
+      last->next = new_node;
     }
   }
-  void push_front(T i) {
-    auto new_head = std::make_shared<node>(head,i);
+  void push_front(T i) {  // TODO
+    auto new_head = std::make_shared<node>(head, i);
     head = new_head;
   }
-  bool pop_back(T &i) {
+  bool pop_back(T &i) {     // TODO
     if (head == nullptr) {  // list empty
       return false;
     } else if (head->next == nullptr) {  // list contains only one element
