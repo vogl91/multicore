@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <functional>
 #include <iostream>
+#include <iterator>
 
 class rb_tree {
  public:
@@ -19,6 +21,12 @@ class rb_tree {
   bool search(node& n, int key);
   bool deleteValue(int key);
   void for_each(std::function<void(const node&)> func) const;
+  void prefix_traversal(std::function<void(const node&)> func) const;
+  void infix_traversal(std::function<void(const node&)> func) const;
+  void postfix_traversal(std::function<void(const node&)> func) const;
+
+ public:
+  friend void debug_print(const rb_tree& t, bool print_color);
 
  private:
   node* root;
@@ -30,7 +38,12 @@ class rb_tree {
 
  private:
   bool insert(int key, node*& inserted_node);
-  void for_each(std::function<void(const node&)> func, node* root) const;
+  void prefix_traversal(std::function<void(const node&)> func,
+                        const node* root) const;
+  void infix_traversal(std::function<void(const node&)> func,
+                       const node* root) const;
+  void postfix_traversal(std::function<void(const node&)> func,
+                         const node* root) const;
 };
 
 /*========* node *========*/
@@ -49,8 +62,8 @@ bool rb_tree::insert(int key) {
   node* inserted_node = nullptr;
   b = insert(key, inserted_node);
   if (!b) return false;
-
-  return true;  // TODO
+  // TODO
+  return true;
 }
 bool rb_tree::search(rb_tree::node& n, int key) {
   auto iter = root;
@@ -72,9 +85,20 @@ bool rb_tree::deleteValue(int key) {
 }
 
 void rb_tree::for_each(std::function<void(const rb_tree::node&)> func) const {
-  for_each(func, root);
+  infix_traversal(func, root);
 }
-
+void rb_tree::prefix_traversal(
+    std::function<void(const rb_tree::node&)> func) const {
+  infix_traversal(func, root);
+}
+void rb_tree::infix_traversal(
+    std::function<void(const rb_tree::node&)> func) const {
+  infix_traversal(func, root);
+}
+void rb_tree::postfix_traversal(
+    std::function<void(const rb_tree::node&)> func) const {
+  infix_traversal(func, root);
+}
 /*========* rb_tree PRIVATE *========*/
 rb_tree::node* rb_tree::make_nil(rb_tree::node* parent) {
   return new node{nullptr, nullptr, parent, 0, color::BLACK};
@@ -118,12 +142,26 @@ bool rb_tree::insert(int key, rb_tree::node*& inserted_node) {
   }
 }
 
-void rb_tree::for_each(std::function<void(const rb_tree::node&)> func,
-                       rb_tree::node* root) const {
+void rb_tree::prefix_traversal(std::function<void(const rb_tree::node&)> func,
+                               const rb_tree::node* root) const {
   if (root->is_nil()) return;
-  for_each(func, root->left);
   func(*root);
-  for_each(func, root->right);
+  prefix_traversal(func, root->left);
+  prefix_traversal(func, root->right);
+}
+void rb_tree::infix_traversal(std::function<void(const rb_tree::node&)> func,
+                              const rb_tree::node* root) const {
+  if (root->is_nil()) return;
+  infix_traversal(func, root->left);
+  func(*root);
+  infix_traversal(func, root->right);
+}
+void rb_tree::postfix_traversal(std::function<void(const rb_tree::node&)> func,
+                                const rb_tree::node* root) const {
+  if (root->is_nil()) return;
+  postfix_traversal(func, root->left);
+  postfix_traversal(func, root->right);
+  func(*root);
 }
 
 /*========* various *========*/
@@ -136,17 +174,31 @@ std::ostream& operator<<(std::ostream& os, const rb_tree& t) {
   os << "]";
   return os;
 }
+static void debug_print(const rb_tree::node& n, int depth, bool print_color) {
+  using namespace std;
+  if (n.is_nil()) return;
+  fill_n(ostream_iterator<char>{cout}, 2 * depth, ' ');
+  cout << n.key;
+  if (print_color) cout << (n.color_ == rb_tree::color::BLACK ? "[B]" : "[R]");
+  cout << endl;
+  debug_print(*n.left, depth + 1, print_color);
+  debug_print(*n.right, depth + 1, print_color);
+}
+
+void debug_print(const rb_tree& t, bool print_color) {
+  debug_print(*t.root, 0, print_color);
+}
 
 /*========* main *========*/
 int main(int argc, char const* argv[]) {
   using namespace std;
   rb_tree t;
-
-  t.insert(1);
-  t.insert(3);
-  t.insert(5);
-  t.insert(2);
-  t.insert(4);
-  cout << t << endl;
+  // int vals[] = {4, 2, 3, 1, 6, 7, 5};
+  // int vals[] = {1, 2, 3, 4, 5, 6, 7};
+  int vals[] = {7, 6, 5, 4, 3, 2, 1};
+  for (auto x : vals) {
+    t.insert(x);
+    debug_print(t, true);
+  }
   return 0;
 }
