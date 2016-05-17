@@ -481,7 +481,7 @@ int main(int argc, char const* argv[]) {
 
   constexpr auto min = 1;
   constexpr auto max = 1000000;
-  constexpr auto count = 10000000;
+  constexpr auto count = 100000;
 
   rb_tree t;
   default_random_engine generator;

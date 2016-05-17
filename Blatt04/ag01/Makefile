@@ -26,7 +26,7 @@ profile: rb_tree
 	perf stat -e tx-start,tx-commit,tx-abort,tx-conflict,tx-capacity,cycles-t,cycles-ct `pwd`/$^ 2>&1 
 
 record: rb_tree
-	perf record -e tx-start,tx-commit,tx-abort,tx-conflict,tx-capacity,cycles-t,cycles-ct `pwd`/$^
+	perf record -e tx-start,tx-commit,tx-abort,tx-conflict,tx-capacity `pwd`/$^
 
 report: record 
 	perf report
