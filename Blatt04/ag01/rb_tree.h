@@ -3,7 +3,61 @@
 
 #include <functional>
 
-#include "rw_lock.h"
+#include <mutex>
+
+#include <immintrin.h>
+#include <xmmintrin.h>
+
+#include <iostream>
+#define DBG(str) (std::cout << (str) << std::endl)
+// #define DBG(str)
+
+class LockElision {
+  // https://software.intel.com/en-us/blogs/2012/11/06/exploring-intel-transactional-synchronization-extensions-with-intel-software#viewSource
+ public:
+  static constexpr int max_retries = 3;
+
+ public:
+  void aquire() {
+    int nentries = 0;
+    while (true) {
+      ++nentries;
+      auto status = _xbegin();
+      DBG(nentries);
+      if (status == _XBEGIN_STARTED) {
+        if (!lock.owns_lock()) {
+          return;
+        } else {
+          _xabort(0xff);
+        }
+      }
+      // abort handler
+      if ((status & _XABORT_EXPLICIT) && _XABORT_CODE(status) == 0xff &&
+          !(status & _XABORT_NESTED)) {
+        while (lock.owns_lock()) _mm_pause();
+      } else if (!(status & _XABORT_RETRY))
+        break;
+      if (nentries >= max_retries) break;
+    }
+    lock.lock();
+  }
+  void release() {
+    if (lock.owns_lock())
+      lock.unlock();
+    else
+      _xend();
+  }
+
+ private:
+  std::mutex m;
+  std::unique_lock<std::mutex> lock{m};
+};
+
+struct RTMLock {
+  LockElision& lock;
+  RTMLock(LockElision& lock) : lock{lock} { lock.aquire(); }
+  ~RTMLock() { lock.release(); }
+};
 
 class rb_tree {
  public:
@@ -37,7 +91,7 @@ class rb_tree {
 
  private:
   node* root;
-  rw_lock rw;
+  LockElision lockElision;
 
  private:
   static node* make_nil(node* parent);

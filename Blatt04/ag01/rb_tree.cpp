@@ -10,9 +10,6 @@
 
 #include "rb_tree.h"
 
-// #define DBG(str) (std::cout << (str) << std::endl)
-#define DBG(str)
-
 void debug_print(const rb_tree& t, bool print_color);
 
 template <typename Container>
@@ -64,7 +61,8 @@ rb_tree::rb_tree() : root{make_nil(nullptr)} {}
 rb_tree::~rb_tree() { delete root; }
 
 bool rb_tree::insert(int key) {
-  write_lock_guard lock{rw};
+  RTMLock lock{lockElision};
+
   node* inserted_node = nullptr;
   if (!insert(key, inserted_node))
     return false;
@@ -72,7 +70,7 @@ bool rb_tree::insert(int key) {
     return insert_case1(inserted_node), true;
 }
 bool rb_tree::search(rb_tree::node& n, int key) {
-  read_lock_guard lock{rw};
+  RTMLock lock{lockElision};
   auto result = search(key);
   if (result == nullptr)
     return false;
@@ -80,7 +78,7 @@ bool rb_tree::search(rb_tree::node& n, int key) {
     return n = *result, true;
 }
 bool rb_tree::deleteValue(int key) {
-  write_lock_guard lock{rw};
+  RTMLock lock{lockElision};
   node* n = search(key);
   if (n == nullptr) {
     return false;
@@ -95,16 +93,16 @@ void rb_tree::for_each(std::function<void(const rb_tree::node&)> func) {
   infix_traversal(func, root);
 }
 void rb_tree::prefix_traversal(std::function<void(const rb_tree::node&)> func) {
-  read_lock_guard lock{rw};
+  RTMLock lock{lockElision};
   prefix_traversal(func, root);
 }
 void rb_tree::infix_traversal(std::function<void(const rb_tree::node&)> func) {
-  read_lock_guard lock{rw};
+  RTMLock lock{lockElision};
   infix_traversal(func, root);
 }
 void rb_tree::postfix_traversal(
     std::function<void(const rb_tree::node&)> func) {
-  read_lock_guard lock{rw};
+  RTMLock lock{lockElision};
   postfix_traversal(func, root);
 }
 rb_tree::node* rb_tree::get_root() { return root; }
@@ -252,7 +250,6 @@ bool rb_tree::insert(int key, rb_tree::node*& inserted_node) {
 
 void rb_tree::insert_case1(rb_tree::node* n) {
   if (n->parent == nullptr) {
-    DBG("case 1");
     n->color_ = color::BLACK;
   } else {
     insert_case2(n);
@@ -261,7 +258,6 @@ void rb_tree::insert_case1(rb_tree::node* n) {
 void rb_tree::insert_case2(rb_tree::node* n) {
   // assert(n->parent != nullptr);
   if (n->parent->color_ == color::BLACK) {
-    DBG("case 2");
     return; /* Tree is still valid */
   } else {
     insert_case3(n);
@@ -274,7 +270,6 @@ void rb_tree::insert_case3(rb_tree::node* n) {
   node* g;
 
   if ((u != nullptr) && (u->color_ == color::RED)) {
-    DBG("case 3");
     n->parent->color_ = color::BLACK;
     u->color_ = color::BLACK;
     g = n->grandparent();
@@ -291,12 +286,10 @@ void rb_tree::insert_case4(rb_tree::node* n) {
   node* g = n->grandparent();
 
   if ((n == n->parent->right) && (n->parent == g->left)) {
-    DBG("case 4 left");
     rotate_left(n->parent);
     n = n->left;
 
   } else if ((n == n->parent->left) && (n->parent == g->right)) {
-    DBG("case 4 right");
     rotate_right(n->parent);
     n = n->right;
   }
@@ -308,10 +301,8 @@ void rb_tree::insert_case5(rb_tree::node* n) {
   n->parent->color_ = color::BLACK;
   g->color_ = color::RED;
   if (n == n->parent->left) {
-    DBG("case 5 right");
     rotate_right(g);
   } else {
-    DBG("case 5 left");
     rotate_left(g);
   }
 }
@@ -481,7 +472,7 @@ int main(int argc, char const* argv[]) {
 
   constexpr auto min = 1;
   constexpr auto max = 1000000;
-  constexpr auto count = 100000;
+  constexpr auto count = 1000000;
 
   rb_tree t;
   default_random_engine generator;
@@ -489,7 +480,7 @@ int main(int argc, char const* argv[]) {
   auto next_int = bind(distribution, generator);
 
   vector<thread> threads;
-  for (int i = 0; i < 8; ++i) {
+  for (int i = 0; i < 4; ++i) {
     threads.push_back(thread{[&]() {
       for (auto i = 0; i < count; ++i) {
         t.insert(next_int());
