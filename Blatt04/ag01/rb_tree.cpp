@@ -1,33 +1,113 @@
-#include "rb_tree.h"
+#include <functional>
 #include <iostream>
 
-const std::shared_ptr<Tree::node> Tree::NIL = std::make_shared<Tree::node>(
-    nullptr, nullptr, nullptr, 0, Tree::Color::BLACK);
+class rb_tree {
+ public:
+  enum class color : uint8_t { BLACK, RED };
+  struct node {
+    node* left;
+    node* right;
+    node* parent;
+    int key;
+    color color_;
+    bool is_nil() const;
+  };
 
-std::shared_ptr<Tree::node> Tree::make_node(int key,
-                                            std::shared_ptr<node> parent) {
-  return std::make_shared<node>(NIL, NIL, parent, key, Tree::Color::RED);
+ public:
+  rb_tree();
+  bool insert(int key);
+  bool search(node& n, int key);
+  bool deleteValue(int key);
+  void for_each(std::function<void(const node&)> func) const;
+
+ private:
+  node* root;
+
+ private:
+  static node NIL;
+  static node* make_nil(node* parent);
+  static node* make_node(node* parent, int key);
+
+ private:
+  bool insert(int key, node*& inserted_node);
+  void for_each(std::function<void(const node&)> func, node* root) const;
+};
+
+/*========* node *========*/
+rb_tree::node rb_tree::NIL = {nullptr, nullptr, nullptr, 0,
+                              rb_tree::color::BLACK};
+
+bool rb_tree::node::is_nil() const {
+  return left == nullptr && right == nullptr;
+}
+/*========* rb_tree INTERFACE *========*/
+
+rb_tree::rb_tree() : root{make_nil(nullptr)} {}
+
+bool rb_tree::insert(int key) {
+  bool b;
+  node* inserted_node = nullptr;
+  b = insert(key, inserted_node);
+  if (!b) return false;
+
+  return true;  // TODO
+}
+bool rb_tree::search(rb_tree::node& n, int key) {
+  auto iter = root;
+  while (true) {
+    if (iter->is_nil()) {
+      return false;
+    } else if (key < iter->key) {
+      iter = iter->left;
+    } else if (key > iter->key) {
+      iter = iter->right;
+    } else {  // key == iter->key
+      n = *iter;
+      return true;
+    }
+  }
+}
+bool rb_tree::deleteValue(int key) {
+  return false;  // TODO
 }
 
-Tree::Tree() : root{Tree::NIL} {}
+void rb_tree::for_each(std::function<void(const rb_tree::node&)> func) const {
+  for_each(func, root);
+}
 
-bool Tree::insert(int key) {
+/*========* rb_tree PRIVATE *========*/
+rb_tree::node* rb_tree::make_nil(rb_tree::node* parent) {
+  return new node{nullptr, nullptr, parent, 0, color::BLACK};
+}
+rb_tree::node* rb_tree::make_node(rb_tree::node* parent, int key) {
+  node* new_node = new node;
+  new_node->left = make_nil(new_node);
+  new_node->right = make_nil(new_node);
+  new_node->parent = parent;
+  new_node->key = key;
+  new_node->color_ = color::RED;
+
+  return new_node;
+}
+
+bool rb_tree::insert(int key, rb_tree::node*& inserted_node) {
   if (root->is_nil()) {
-    root = make_node(key, NIL);
-    return true;
+    auto new_node = make_node(&NIL, key);
+    root = new_node;
+    return inserted_node = new_node, true;
   }
   auto iter = root;
   while (true) {
     if (key < iter->key) {
       if (iter->left->is_nil()) {
-        iter->left = make_node(key, iter);
+        iter->left = make_node(iter, key);
         return true;
       } else {
         iter = iter->left;
       }
     } else if (key > iter->key) {
       if (iter->right->is_nil()) {
-        iter->right = make_node(key, iter);
+        iter->right = make_node(iter, key);
         return true;
       } else {
         iter = iter->right;
@@ -37,88 +117,36 @@ bool Tree::insert(int key) {
     }
   }
 }
-bool Tree::search(int key, Tree::node& n) {
-  auto iter = root.get();
-  while (true) {
-    if (iter->is_nil()) {
-      return false;
-    } else if (key < iter->key) {
-      iter = iter->left.get();
-    } else if (key > iter->key) {
-      iter = iter->right.get();
-    } else {  // key == iter->key
-      n = *iter;
-      return true;
-    }
-  }
-}
-bool Tree::deleteValue(int key) {
-  // TODO
-  return false;
-}
 
-void Tree::for_each(std::function<void(const Tree::node&)> func) const {
-  for_each(func, root);
-}
-
-void Tree::for_each(std::function<void(const Tree::node&)> func,
-                    std::shared_ptr<Tree::node> root) const {
+void rb_tree::for_each(std::function<void(const rb_tree::node&)> func,
+                       rb_tree::node* root) const {
   if (root->is_nil()) return;
   for_each(func, root->left);
   func(*root);
   for_each(func, root->right);
 }
 
-bool Tree::assert_children_black_if_node_red() const {
-  bool b = true;
-  for_each([&](const node& n) {
-    if (n.color == Color::RED) {
-      b &= n.left->color == Color::BLACK && n.right->color == Color::BLACK;
-    }
-  });
-  return b;
-}
-
-bool Tree::assert_each_path_contains_same_number_of_black_nodes() const {
-  bool b = true;
-  assert_each_path_contains_same_number_of_black_nodes(*root, b);
-  return b;
-}
-
-size_t Tree::assert_each_path_contains_same_number_of_black_nodes(
-    const node& n, bool& b) const {
-  if (n.is_nil()) return 1;
-  auto l = assert_each_path_contains_same_number_of_black_nodes(*n.left, b);
-  auto r = assert_each_path_contains_same_number_of_black_nodes(*n.right, b);
-  b &= l == r;
-  return l + r + (n.color == Color::BLACK ? 1 : 0);
-}
-
-bool Tree::test_assertions() const {
-  return assert_children_black_if_node_red() &&
-         assert_each_path_contains_same_number_of_black_nodes();
-}
-
-std::ostream& operator<<(std::ostream& os, const Tree& t) {
+/*========* various *========*/
+std::ostream& operator<<(std::ostream& os, const rb_tree& t) {
   os << "[ ";
-  t.for_each([&os](const Tree::node& n) {
-    os << n.key << "(" << (n.color == Tree::Color::BLACK ? "B" : "R") << ")"
+  t.for_each([&os](const rb_tree::node& n) {
+    os << n.key << "(" << (n.color_ == rb_tree::color::BLACK ? "B" : "R") << ")"
        << " ";
   });
   os << "]";
   return os;
 }
 
-int main(int argc, char* argv[]) {
+/*========* main *========*/
+int main(int argc, char const* argv[]) {
   using namespace std;
-  cout << "Red Black Tree" << endl;
-  Tree t;
-  for (int i = 0; i < 10; ++i) {
-    t.insert(i);
-  }
+  rb_tree t;
+
   t.insert(1);
+  t.insert(3);
+  t.insert(5);
+  t.insert(2);
+  t.insert(4);
   cout << t << endl;
-  cout << t.assert_children_black_if_node_red() << endl;
-  cout << t.assert_each_path_contains_same_number_of_black_nodes() << endl;
   return 0;
 }
