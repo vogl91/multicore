@@ -1,35 +1,36 @@
 #include "rb_tree.h"
 #include <iostream>
 
-const std::shared_ptr<Tree::node> Tree::NIL =
-    std::make_shared<Tree::node>(nullptr, nullptr, 0, Tree::Color::BLACK);
+const std::shared_ptr<Tree::node> Tree::NIL = std::make_shared<Tree::node>(
+    nullptr, nullptr, nullptr, 0, Tree::Color::BLACK);
 
-std::shared_ptr<Tree::node> Tree::make_node(int key) {
-  return std::make_shared<node>(NIL, NIL, key, Tree::Color::RED);
+std::shared_ptr<Tree::node> Tree::make_node(int key,
+                                            std::shared_ptr<node> parent) {
+  return std::make_shared<node>(NIL, NIL, parent, key, Tree::Color::RED);
 }
 
 Tree::Tree() : root{Tree::NIL} {}
 
 bool Tree::insert(int key) {
   if (root->is_nil()) {
-    root = make_node(key);
+    root = make_node(key, NIL);
     return true;
   }
-  auto iter = root.get();
+  auto iter = root;
   while (true) {
     if (key < iter->key) {
       if (iter->left->is_nil()) {
-        iter->left = make_node(key);
+        iter->left = make_node(key, iter);
         return true;
       } else {
-        iter = iter->left.get();
+        iter = iter->left;
       }
     } else if (key > iter->key) {
       if (iter->right->is_nil()) {
-        iter->right = make_node(key);
+        iter->right = make_node(key, iter);
         return true;
       } else {
-        iter = iter->right.get();
+        iter = iter->right;
       }
     } else {  // key == iter->key
       return false;
