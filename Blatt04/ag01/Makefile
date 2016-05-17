@@ -2,8 +2,8 @@ OUT=rb_tree
 CC=gcc
 CXX=g++
 RM=rm -f
-CPPFLAGS= -g -mrtm -std=c++14
-LDFLAGS= -g -mrtm
+CPPFLAGS= -g -O2 -mrtm -std=c++14
+LDFLAGS= -g -O2 -mrtm
 LDLIBS= -lpthread
 
 SRCS=$(wildcard *.cpp)

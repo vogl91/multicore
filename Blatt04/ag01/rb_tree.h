@@ -2,8 +2,8 @@
 #define C_BBTREE_H
 
 #include <functional>
-
 #include <mutex>
+#include <thread>
 
 #include <immintrin.h>
 #include <xmmintrin.h>
@@ -23,9 +23,10 @@ class LockElision {
     while (true) {
       ++nentries;
       auto status = _xbegin();
-      DBG(nentries);
+      // DBG(nentries);
       if (status == _XBEGIN_STARTED) {
-        if (!lock.owns_lock()) {
+        if (m.try_lock()) {
+          m.unlock();
           return;
         } else {
           _xabort(0xff);
@@ -34,23 +35,27 @@ class LockElision {
       // abort handler
       if ((status & _XABORT_EXPLICIT) && _XABORT_CODE(status) == 0xff &&
           !(status & _XABORT_NESTED)) {
-        while (lock.owns_lock()) _mm_pause();
+        while (!m.try_lock()) _mm_pause();
+        m.unlock();
       } else if (!(status & _XABORT_RETRY))
         break;
       if (nentries >= max_retries) break;
     }
-    lock.lock();
+    m.lock();
+    id = std::this_thread::get_id();
   }
   void release() {
-    if (lock.owns_lock())
-      lock.unlock();
-    else
+    if (id == std::this_thread::get_id()) {
+      id = std::thread::id();
+      m.unlock();
+    } else
       _xend();
   }
 
  private:
   std::mutex m;
-  std::unique_lock<std::mutex> lock{m};
+  std::thread::id id;
+  // std::unique_lock<std::mutex> lock{m};
 };
 
 struct RTMLock {
