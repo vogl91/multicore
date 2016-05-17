@@ -2,9 +2,9 @@ OUT=rb_tree
 CC=gcc
 CXX=g++
 RM=rm -f
-CPPFLAGS= -g -mrtm -std=c++14
-LDFLAGS= -g 
-LDLIBS=
+CPPFLAGS= -g -O2 -mrtm -std=c++14
+LDFLAGS= -g -O2
+LDLIBS= -lpthread
 
 SRCS=$(wildcard *.cpp)
 OBJS=$(subst .cpp,.o,$(SRCS))
@@ -20,7 +20,7 @@ run_external: all
 	xfce4-terminal -x ~/bin/pause ./${OUT} ${PARAMS}
 
 rb_tree: $(OBJS)
-	$(CXX)  -o $@ $(OBJS) $(LDFLAGS) 
+	$(CXX)  -o $@ $(OBJS) $(LDFLAGS)  $(LDLIBS)
 
 profile: rb_tree
 	perf stat -e tx-start,tx-commit,tx-abort,tx-conflict,tx-capacity,cycles-t,cycles-ct `pwd`/$^ 2>&1 

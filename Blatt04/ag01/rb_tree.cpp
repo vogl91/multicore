@@ -5,12 +5,22 @@
 #include <iostream>
 #include <iterator>
 #include <random>
+#include <thread>
+#include <vector>
 
 #include "rb_tree.h"
 
-#define DBG(str) (std::cout << (str) << std::endl)
+// #define DBG(str) (std::cout << (str) << std::endl)
+#define DBG(str)
 
 void debug_print(const rb_tree& t, bool print_color);
+
+template <typename Container>
+void join_all(Container& c) {
+  std::for_each(c.begin(), c.end(), [](std::thread& t) {
+    if (t.joinable()) t.join();
+  });
+}
 
 /*========* node *========*/
 rb_tree::node::~node() {
@@ -38,6 +48,15 @@ rb_tree::node* rb_tree::node::uncle() const {
   else
     return g->left;
 }
+
+rb_tree::node* rb_tree::node::sibling() const {
+  if (parent == nullptr) return nullptr;
+  if (this == parent->left)
+    return parent->right;
+  else
+    return parent->left;
+}
+
 /*========* rb_tree INTERFACE *========*/
 
 rb_tree::rb_tree() : root{make_nil(nullptr)} {}
@@ -45,6 +64,7 @@ rb_tree::rb_tree() : root{make_nil(nullptr)} {}
 rb_tree::~rb_tree() { delete root; }
 
 bool rb_tree::insert(int key) {
+  write_lock_guard lock{rw};
   node* inserted_node = nullptr;
   if (!insert(key, inserted_node))
     return false;
@@ -52,42 +72,44 @@ bool rb_tree::insert(int key) {
     return insert_case1(inserted_node), true;
 }
 bool rb_tree::search(rb_tree::node& n, int key) {
-  auto iter = root;
-  while (true) {
-    if (iter->is_nil()) {
-      return false;
-    } else if (key < iter->key) {
-      iter = iter->left;
-    } else if (key > iter->key) {
-      iter = iter->right;
-    } else {  // key == iter->key
-      n = *iter;
-      return true;
-    }
-  }
+  read_lock_guard lock{rw};
+  auto result = search(key);
+  if (result == nullptr)
+    return false;
+  else
+    return n = *result, true;
 }
 bool rb_tree::deleteValue(int key) {
-  return false;  // TODO
+  write_lock_guard lock{rw};
+  node* n = search(key);
+  if (n == nullptr) {
+    return false;
+  } else {
+    node* succ = find_successor(n);
+    swap_nodes(n, succ);
+    return deleteValue(succ), true;
+  }
 }
 
-void rb_tree::for_each(std::function<void(const rb_tree::node&)> func) const {
+void rb_tree::for_each(std::function<void(const rb_tree::node&)> func) {
   infix_traversal(func, root);
 }
-void rb_tree::prefix_traversal(
-    std::function<void(const rb_tree::node&)> func) const {
-  infix_traversal(func, root);
+void rb_tree::prefix_traversal(std::function<void(const rb_tree::node&)> func) {
+  read_lock_guard lock{rw};
+  prefix_traversal(func, root);
 }
-void rb_tree::infix_traversal(
-    std::function<void(const rb_tree::node&)> func) const {
+void rb_tree::infix_traversal(std::function<void(const rb_tree::node&)> func) {
+  read_lock_guard lock{rw};
   infix_traversal(func, root);
 }
 void rb_tree::postfix_traversal(
-    std::function<void(const rb_tree::node&)> func) const {
-  infix_traversal(func, root);
+    std::function<void(const rb_tree::node&)> func) {
+  read_lock_guard lock{rw};
+  postfix_traversal(func, root);
 }
-const rb_tree::node* rb_tree::get_root() const { return root; }
+rb_tree::node* rb_tree::get_root() { return root; }
 
-/*========* rb_tree PRIVATE *========*/
+/*========* rb_tree PRIVATE helper *========*/
 rb_tree::node* rb_tree::make_nil(rb_tree::node* parent) {
   return new node{nullptr, nullptr, parent, 0, color::BLACK};
 }
@@ -101,6 +123,104 @@ rb_tree::node* rb_tree::make_node(rb_tree::node* parent, int key) {
 
   return new_node;
 }
+
+void rb_tree::rotate_left(rb_tree::node* n) {
+  /*
+   *   (p)   |   (p)
+   *    n    |    a
+   *  1   a  |  n   2
+   *     b 2 | 1 b
+   */
+  assert(!n->is_nil());
+  assert(!n->right->is_nil());
+  node* const a = n->right;
+  node* const b = a->left;
+  node* const p = n->parent;
+  a->left = n, n->parent = a;
+  n->right = b, b->parent = n;
+  if (p == nullptr) {
+    // n is root
+    a->parent = nullptr;
+    root = a;
+  } else {
+    a->parent = p;
+    if (p->left == n)
+      p->left = a;
+    else
+      p->right = a;
+  }
+}
+void rb_tree::rotate_right(rb_tree::node* n) {
+  /*
+   *   (p)   |   (p)
+   *    n    |    a
+   *  a   1  |  2   n
+   * 2 b     |     b 2
+   */
+  assert(!n->is_nil());
+  assert(!n->left->is_nil());
+  node* const a = n->left;
+  node* const b = a->right;
+  node* const p = n->parent;
+  a->right = n, n->parent = a;
+  n->left = b, b->parent = n;
+  if (p == nullptr) {
+    // n is root
+    a->parent = nullptr;
+    root = a;
+  } else {
+    a->parent = p;
+    if (p->left == n)
+      p->left = a;
+    else
+      p->right = a;
+  }
+}
+
+void rb_tree::swap_nodes(rb_tree::node* n, rb_tree::node* m) {
+  // assert(!n->is_nil());
+  // assert(!m->is_nil());
+  int tmp = n->key;
+  n->key = m->key;
+  m->key = tmp;
+}
+rb_tree::node* rb_tree::find_successor(const rb_tree::node* n) const {
+  if (n->right->is_nil()) {
+    auto iter = n;
+    while (iter->parent && iter->parent->right == iter) {
+      iter = iter->parent;
+    }
+    if (iter->parent && iter->parent->left == iter) {
+      return iter->parent;
+    } else {
+      return nullptr;
+    }
+  } else {
+    auto iter = n->right;
+    while (!iter->left->is_nil()) {
+      iter = iter->left;
+    }
+    return iter;
+  }
+}
+
+/*========* rb_tree PRIVATE search *========*/
+rb_tree::node* rb_tree::search(int key) const {
+  auto iter = root;
+  while (true) {
+    if (iter->is_nil()) {
+      return nullptr;
+    } else if (key < iter->key) {
+      iter = iter->left;
+    } else if (key > iter->key) {
+      iter = iter->right;
+    } else {  // key == iter->key
+      return iter;
+    }
+  }
+}
+
+/*========* rb_tree PRIVATE insert *========*/
 
 bool rb_tree::insert(int key, rb_tree::node*& inserted_node) {
   if (root->is_nil()) {
@@ -173,27 +293,11 @@ void rb_tree::insert_case4(rb_tree::node* n) {
   if ((n == n->parent->right) && (n->parent == g->left)) {
     DBG("case 4 left");
     rotate_left(n->parent);
-
-    // rotate left
-    // node* saved_p = g->left;
-    // node* saved_left_n = n->left;
-    // g->left = n, n->parent = g;
-    // n->left = saved_p, saved_p->parent = n;
-    // saved_p->right = saved_left_n, saved_left_n->parent = saved_p;
-
     n = n->left;
 
   } else if ((n == n->parent->left) && (n->parent == g->right)) {
     DBG("case 4 right");
     rotate_right(n->parent);
-
-    // rotate right
-    // node* saved_p = g->right;
-    // node* saved_right_n = n->right;
-    // g->right = n, n->parent = g;
-    // n->right = saved_p, saved_p->parent = n;
-    // saved_p->left = saved_right_n, saved_right_n->parent = saved_p;
-
     n = n->right;
   }
   insert_case5(n);
@@ -211,59 +315,40 @@ void rb_tree::insert_case5(rb_tree::node* n) {
     rotate_left(g);
   }
 }
+/*========* rb_tree PRIVATE remove *========*/
+void rb_tree::deleteValue(rb_tree::node* n) {
+  node* child = n->right->is_nil() ? n->left : n->right;
 
-void rb_tree::rotate_left(rb_tree::node* n) {
-  /*
-   *   (p)   |   (p)
-   *    n    |    a
-   *  1   a  |  n   2
-   *     b 2 | 1 b
-   */
-  assert(!n->is_nil());
-  assert(!n->right->is_nil());
-  node* const a = n->right;
-  node* const b = a->left;
-  node* const p = n->parent;
-  a->left = n, n->parent = a;
-  n->right = b, b->parent = n;
-  if (p == nullptr) {
-    // n is root
-    a->parent = nullptr;
-    root = a;
-  } else {
-    a->parent = p;
-    if (p->left == n)
-      p->left = a;
+  swap_nodes(n, child);
+  if (n->color_ == color::BLACK) {
+    if (child->color_ == color::RED)
+      child->color_ = color::BLACK;
     else
-      p->right = a;
+      delete_case1(child);
   }
+  delete n;
 }
-void rb_tree::rotate_right(rb_tree::node* n) {
-  /*
-   *   (p)   |   (p)
-   *    n    |    a
-   *  a   1  |  2   n
-   * 2 b     |     b 2
-   */
-  assert(!n->is_nil());
-  assert(!n->left->is_nil());
-  node* const a = n->left;
-  node* const b = a->right;
-  node* const p = n->parent;
-  a->right = n, n->parent = a;
-  n->left = b, b->parent = n;
-  if (p == nullptr) {
-    // n is root
-    a->parent = nullptr;
-    root = a;
-  } else {
-    a->parent = p;
-    if (p->left == n)
-      p->left = a;
-    else
-      p->right = a;
-  }
+
+void rb_tree::delete_case1(rb_tree::node* n) {
+  // TODO
 }
+void rb_tree::delete_case2(rb_tree::node* n) {
+  // TODO
+}
+void rb_tree::delete_case3(rb_tree::node* n) {
+  // TODO
+}
+void rb_tree::delete_case4(rb_tree::node* n) {
+  // TODO
+}
+void rb_tree::delete_case5(rb_tree::node* n) {
+  // TODO
+}
+void rb_tree::delete_case6(rb_tree::node* n) {
+  // TODO
+}
+
+/*========* rb_tree PRIVATE traversal *========*/
 
 void rb_tree::prefix_traversal(std::function<void(const rb_tree::node&)> func,
                                const rb_tree::node* root) const {
@@ -288,7 +373,7 @@ void rb_tree::postfix_traversal(std::function<void(const rb_tree::node&)> func,
 }
 
 /*========* various *========*/
-std::ostream& operator<<(std::ostream& os, const rb_tree& t) {
+std::ostream& operator<<(std::ostream& os, rb_tree& t) {
   os << "[ ";
   t.for_each([&os](const rb_tree::node& n) {
     os << n.key << "(" << (n.color_ == rb_tree::color::BLACK ? "B" : "R") << ")"
@@ -310,16 +395,23 @@ static void debug_print(const rb_tree::node& n, int depth) {
   debug_print(*n.right, depth + 1);
 }
 
-void debug_print(const rb_tree& t) { debug_print(*t.get_root(), 0); }
+void debug_print(rb_tree& t) { debug_print(*t.get_root(), 0); }
 
-void assert_is_search_tree(const rb_tree& t) {
+void assert_is_search_tree(rb_tree& t) {
   t.for_each([](const auto& n) {
     assert(n.left->is_nil() || n.key > n.left->key);
     assert(n.right->is_nil() || n.key < n.right->key);
   });
 }
 
-void assert_red_childs_are_black(const rb_tree& t) {
+void assert_parent_child_relationship_holds(rb_tree& t) {
+  t.for_each([](const auto& n) {
+    assert(n.left->parent == &n);
+    assert(n.right->parent == &n);
+  });
+}
+
+void assert_red_childs_are_black(rb_tree& t) {
   t.for_each([](const auto& n) {
     if (n.color_ == rb_tree::color::RED) {
       assert(n.left->color_ == rb_tree::color::BLACK);
@@ -328,7 +420,7 @@ void assert_red_childs_are_black(const rb_tree& t) {
   });
 }
 
-static size_t assert_black_path_length_equal(const rb_tree::node* n) {
+static size_t assert_black_path_length_equal(rb_tree::node* n) {
   if (n->is_nil()) return 1;
   const auto left_count = assert_black_path_length_equal(n->left);
   const auto right_count = assert_black_path_length_equal(n->right);
@@ -337,7 +429,7 @@ static size_t assert_black_path_length_equal(const rb_tree::node* n) {
          (n->color_ == rb_tree::color::BLACK ? 1 : 0);
 }
 
-void assert_black_path_length_equal(const rb_tree& t) {
+void assert_black_path_length_equal(rb_tree& t) {
   assert_black_path_length_equal(t.get_root());
 }
 
@@ -349,12 +441,66 @@ void fill_random(Iter first, Iter last, int min, int max) {
   std::generate(first, last, std::bind(distribution, generator));
 }
 
+void test() {
+  using namespace std;
+  rb_tree t;
+  // int vals[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  // int vals[] = {9, 8, 7, 6, 5, 4, 3, 2, 1};
+  int vals[] = {5, 2, 7, 8, 4, 1, 4, 6, 9, 3};
+  for (auto x : vals) {
+    t.insert(x);
+  }
+  debug_print(t);
+  // t.deleteValue(7);
+  // debug_print(t);
+
+  // for (auto x : vals) {
+  //   t.deleteValue(x);
+  //   debug_print(t);
+  //   assert_parent_child_relationship_holds(t);
+  //   assert_is_search_tree(t);
+  //   assert_red_childs_are_black(t);
+  //   assert_black_path_length_equal(t);
+  // }
+}
+
+// template <typename Func>
+// void test_insert_delete(rb_tree& t, int count, Func next_int) {
+//   using namespace std;
+//   for (auto i = 0; i < count; ++i) {
+//     t.insert(next_int());
+//   }
+//   // for (auto i = 0; i < count; ++i) {
+//   //   t.deleteValue(next_int());
+//   // }
+// }
+
 /*========* main *========*/
 int main(int argc, char const* argv[]) {
   using namespace std;
-  int vals[] = {4, 2, 3, 1, 6, 7, 5};
-  // int vals[] = {1, 2, 3, 4, 5, 6, 7};
-  // int vals[] = {7, 6, 5, 4, 3, 2, 1};
+
+  constexpr auto min = 1;
+  constexpr auto max = 1000000;
+  constexpr auto count = 10000000;
+
+  rb_tree t;
+  default_random_engine generator;
+  uniform_int_distribution<int> distribution{min, max};
+  auto next_int = bind(distribution, generator);
+
+  vector<thread> threads;
+  for (int i = 0; i < 8; ++i) {
+    threads.push_back(thread{[&]() {
+      for (auto i = 0; i < count; ++i) {
+        t.insert(next_int());
+      }
+      // for (auto i = 0; i < count; ++i) {
+      //   t.deleteValue(next_int());
+      // }
+    }});
+  }
+
+  join_all(threads);
 
   // constexpr auto min = 1;
   // constexpr auto max = 100;
@@ -362,15 +508,15 @@ int main(int argc, char const* argv[]) {
   // int vals[count];
   // fill_random(begin(vals), end(vals), min, max);
 
-  rb_tree t;
-  for (auto x : vals) {
-    t.insert(x);
-    assert_red_childs_are_black(t);
-    assert_black_path_length_equal(t);
-    assert_is_search_tree(t);
-  }
-  cout << "----------------" << endl;
-  debug_print(t);
-  // cout << t.get_root()->left->left->uncle()->key << endl;
+  // rb_tree t;
+  // for (auto x : vals) {
+  //   t.insert(x);
+  //   assert_parent_child_relationship_holds(t);
+  //   assert_is_search_tree(t);
+  //   assert_red_childs_are_black(t);
+  //   assert_black_path_length_equal(t);
+  // }
+  // cout << "----------------" << endl;
+  // debug_print(t);
   return 0;
 }
