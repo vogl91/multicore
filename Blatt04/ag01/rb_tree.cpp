@@ -435,9 +435,9 @@ void fill_random(Iter first, Iter last, int min, int max) {
 void test1() {
   using namespace std;
   rb_tree t;
-  // int vals[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  int vals[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   // int vals[] = {9, 8, 7, 6, 5, 4, 3, 2, 1};
-  int vals[] = {5, 2, 7, 8, 4, 1, 4, 6, 9, 3};
+  // int vals[] = {5, 2, 7, 8, 4, 1, 4, 6, 9, 3};
   for (auto x : vals) {
     t.insert(x);
   }
@@ -525,7 +525,8 @@ void test_rtm_lock() {
 /*========* main *========*/
 int main(int argc, char const* argv[]) {
   using namespace std;
+  test1();
   // test_insert_delete();
-  test_rtm_lock();
+  // test_rtm_lock();
   return 0;
 }
