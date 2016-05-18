@@ -43,8 +43,8 @@ class LockElision {
   }
   void release() {
     if (flag) {
-      m.unlock();
       flag = false;
+      m.unlock();
     } else
       _xend();
   }

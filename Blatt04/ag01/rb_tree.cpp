@@ -479,8 +479,8 @@ void test_insert_delete() {
   using namespace std;
 
   constexpr auto min = 1;
-  constexpr auto max = 1000000;
-  constexpr auto count = 1000000;
+  constexpr auto max = 10000000;
+  constexpr auto count = 10000000;
 
   rb_tree t;
   default_random_engine generator;
@@ -488,7 +488,7 @@ void test_insert_delete() {
   auto next_int = bind(distribution, generator);
 
   vector<thread> threads;
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < 1; ++i) {
     threads.push_back(thread{[&]() {
       for (auto i = 0; i < count; ++i) {
         t.insert(next_int());
@@ -525,8 +525,8 @@ void test_rtm_lock() {
 /*========* main *========*/
 int main(int argc, char const* argv[]) {
   using namespace std;
-  test1();
-  // test_insert_delete();
+  // test1();
+  test_insert_delete();
   // test_rtm_lock();
   return 0;
 }
