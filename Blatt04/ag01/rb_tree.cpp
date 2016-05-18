@@ -432,7 +432,7 @@ void fill_random(Iter first, Iter last, int min, int max) {
   std::generate(first, last, std::bind(distribution, generator));
 }
 
-void test() {
+void test1() {
   using namespace std;
   rb_tree t;
   // int vals[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -455,19 +455,27 @@ void test() {
   // }
 }
 
-// template <typename Func>
-// void test_insert_delete(rb_tree& t, int count, Func next_int) {
-//   using namespace std;
-//   for (auto i = 0; i < count; ++i) {
-//     t.insert(next_int());
-//   }
-//   // for (auto i = 0; i < count; ++i) {
-//   //   t.deleteValue(next_int());
-//   // }
-// }
+void test2() {
+  using namespace std;
+  constexpr auto min = 1;
+  constexpr auto max = 100;
+  constexpr auto count = 100;
+  int vals[count];
+  fill_random(begin(vals), end(vals), min, max);
 
-/*========* main *========*/
-int main(int argc, char const* argv[]) {
+  rb_tree t;
+  for (auto x : vals) {
+    t.insert(x);
+    assert_parent_child_relationship_holds(t);
+    assert_is_search_tree(t);
+    assert_red_childs_are_black(t);
+    assert_black_path_length_equal(t);
+  }
+  cout << "----------------" << endl;
+  debug_print(t);
+}
+
+void test_insert_delete() {
   using namespace std;
 
   constexpr auto min = 1;
@@ -480,7 +488,7 @@ int main(int argc, char const* argv[]) {
   auto next_int = bind(distribution, generator);
 
   vector<thread> threads;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 2; ++i) {
     threads.push_back(thread{[&]() {
       for (auto i = 0; i < count; ++i) {
         t.insert(next_int());
@@ -492,22 +500,32 @@ int main(int argc, char const* argv[]) {
   }
 
   join_all(threads);
+}
 
-  // constexpr auto min = 1;
-  // constexpr auto max = 100;
-  // constexpr auto count = 100;
-  // int vals[count];
-  // fill_random(begin(vals), end(vals), min, max);
+void test_rtm_lock() {
+  using namespace std;
+  constexpr int count = 10000000;
+  vector<int> values;
+  values.resize(count, 0);
+  LockElision lockElision;
 
-  // rb_tree t;
-  // for (auto x : vals) {
-  //   t.insert(x);
-  //   assert_parent_child_relationship_holds(t);
-  //   assert_is_search_tree(t);
-  //   assert_red_childs_are_black(t);
-  //   assert_black_path_length_equal(t);
-  // }
-  // cout << "----------------" << endl;
-  // debug_print(t);
+  vector<thread> threads;
+  for (int i = 0; i < 8; ++i) {
+    threads.push_back(thread{[&]() {
+      for (int i = 0; i < count; ++i) {
+        RTMLock lock{lockElision};
+        values[i]++;
+      }
+    }});
+  }
+
+  join_all(threads);
+}
+
+/*========* main *========*/
+int main(int argc, char const* argv[]) {
+  using namespace std;
+  // test_insert_delete();
+  test_rtm_lock();
   return 0;
 }

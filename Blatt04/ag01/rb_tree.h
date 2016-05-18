@@ -15,7 +15,7 @@
 class LockElision {
   // https://software.intel.com/en-us/blogs/2012/11/06/exploring-intel-transactional-synchronization-extensions-with-intel-software#viewSource
  public:
-  static constexpr int max_retries = 3;
+  static constexpr int max_retries = 100;
 
  public:
   void aquire() {
@@ -23,10 +23,8 @@ class LockElision {
     while (true) {
       ++nentries;
       auto status = _xbegin();
-      // DBG(nentries);
       if (status == _XBEGIN_STARTED) {
-        if (m.try_lock()) {
-          m.unlock();
+        if (!flag) {
           return;
         } else {
           _xabort(0xff);
@@ -35,27 +33,25 @@ class LockElision {
       // abort handler
       if ((status & _XABORT_EXPLICIT) && _XABORT_CODE(status) == 0xff &&
           !(status & _XABORT_NESTED)) {
-        while (!m.try_lock()) _mm_pause();
-        m.unlock();
+        while (flag) _mm_pause();
       } else if (!(status & _XABORT_RETRY))
         break;
       if (nentries >= max_retries) break;
     }
     m.lock();
-    id = std::this_thread::get_id();
+    flag = true;
   }
   void release() {
-    if (id == std::this_thread::get_id()) {
-      id = std::thread::id();
+    if (flag) {
       m.unlock();
+      flag = false;
     } else
       _xend();
   }
 
  private:
   std::mutex m;
-  std::thread::id id;
-  // std::unique_lock<std::mutex> lock{m};
+  bool flag = false;
 };
 
 struct RTMLock {
