@@ -48,13 +48,13 @@ int main(int argc, char *argv[]) {
 
   if (numtasks < 2) {
     cerr << "must specify at least 2 tasks" << endl;
-    MPI::Finalize();
+    MPI::COMM_WORLD.Abort(1);
     return 1;
   }
 #if ASSERT_10_PROCESSES
   if (numtasks != 10) {
     cerr << "please specify 10 tasks" << endl;
-    MPI::Finalize();
+    MPI::COMM_WORLD.Abort(2);
     return 2;
   }
 #endif
