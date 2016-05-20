@@ -1,4 +1,4 @@
-NUM_PROCS=8
+NUM_PROCS=10
 PARAMS=100000000
 
 RUN=mpirun -n $(NUM_PROCS) ./pi $(PARAMS)
@@ -13,7 +13,7 @@ LDLIBS=-lboost_system  -lboost_timer
 SRCS=pi.cpp
 OBJS=$(subst .cpp,.o,$(SRCS))
 
-.PHONY=pi
+.PHONY=all run run_external clean
 
 all: pi
 
