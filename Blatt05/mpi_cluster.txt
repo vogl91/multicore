@@ -1,0 +1,14 @@
+MPI-Cluster-Ausführung mit SSH
+
+1. Legen Sie ein RSA-Schlüsselpaar für SSH an und verzichten Sie beim Anlegen auf ein Passwort:
+   ssh-keygen -t rsa
+
+2. Fügen Sie den generierten öffentlichen Schlüssel zu den autorisierten Schlüsseln hinzu:
+   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+
+3. Hängen Sie die öffentlichen Schlüssel der Praktikumsrechner an ihre known_hosts-Datei an:
+   cat ~/share/multicore/known_hosts >> ~/.ssh/known_hosts
+
+
+
+
