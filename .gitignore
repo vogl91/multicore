@@ -3,3 +3,17 @@ svn/
 .*
 !.gitignore
 
+Blatt02/ag01/linkedlist
+Blatt02/ag02/mergesort
+Blatt03/ag01/atll
+Blatt04/ag01/perf.data
+Blatt04/ag01/perf.data.old
+Blatt04/ag01/rb_tree
+Blatt05/ag1/pi
+Blatt05/ag2/ctrl
+Blatt05/ag2/out.txt
+Blatt05/ag2/untitled.cpp
+Blatt05/ag2/wrk
+Makefile
+test
+test.cpp
