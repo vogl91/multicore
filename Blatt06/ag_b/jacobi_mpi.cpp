@@ -7,8 +7,10 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 
 #include <algorithm>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -21,6 +23,7 @@ constexpr int MASTER_RANK = 0;
 constexpr double epsilon = 1e-4;
 #define COMPARE_WITH_SEQUENTIAL 0
 #define NON_BLOCKING 1
+#define LOAD_FROM_FILE 1
 
 /*========* MATRIX HELPER *========*/
 
@@ -37,6 +40,15 @@ std::ostream& operator<<(std::ostream& os, const Matrix_t& m) {
     os << std::endl;
   }
   return os;
+}
+
+std::istream& operator>>(std::istream& is, Matrix_t& m) {
+  for (auto i = 0u; i < m.height(); ++i) {
+    for (auto j = 0u; j < m.width(); ++j) {
+      is >> m(i, j);
+    }
+  }
+  return is;
 }
 
 void fill_random(Matrix_t& m) {
@@ -145,17 +157,17 @@ class Parallel_jacobi {
   void exchange_upper() {
     if (rank > 0) {
       MPI::COMM_WORLD.Sendrecv(
-          u_old.begin_row(1), u_old.width(), MPI_DOUBLE, rank - 1, 0,  //
-          u_old.begin_row(0), u_old.width(), MPI_DOUBLE, rank - 1, 0);
+          u_old.begin_row(1), u_old.width(), MPI::DOUBLE, rank - 1, 0,  //
+          u_old.begin_row(0), u_old.width(), MPI::DOUBLE, rank - 1, 0);
     }
   }
 
   void exchange_lower() {
     if (rank != numtasks - 1) {
       MPI::COMM_WORLD.Sendrecv(u_old.begin_row(u_old.height() - 2),
-                               u_old.width(), MPI_DOUBLE, rank + 1, 0,  //
+                               u_old.width(), MPI::DOUBLE, rank + 1, 0,  //
                                u_old.begin_row(u_old.height() - 1),
-                               u_old.width(), MPI_DOUBLE, rank + 1, 0);
+                               u_old.width(), MPI::DOUBLE, rank + 1, 0);
     }
   }
 
@@ -170,16 +182,16 @@ class Parallel_jacobi {
     if (rank != numtasks - 1) {
       requests[1] =
           MPI::COMM_WORLD.Irecv(u_old.begin_row(u_old.height() - 1),
-                                u_old.width(), MPI_DOUBLE, rank + 1, 0);
+                                u_old.width(), MPI::DOUBLE, rank + 1, 0);
     }
     if (rank > 0) {
       requests[2] = MPI::COMM_WORLD.Isend(u_old.begin_row(1), u_old.width(),
-                                          MPI_DOUBLE, rank - 1, 0);
+                                          MPI::DOUBLE, rank - 1, 0);
     }
     if (rank != numtasks - 1) {
       requests[3] =
           MPI::COMM_WORLD.Isend(u_old.begin_row(u_old.height() - 2),
-                                u_old.width(), MPI_DOUBLE, rank + 1, 0);
+                                u_old.width(), MPI::DOUBLE, rank + 1, 0);
     }
     MPI::Request::Waitall(4, requests);
 
@@ -201,19 +213,11 @@ class Parallel_jacobi {
   Matrix_t u_new;
 };
 
-void main_master() {
+void main_master(Matrix_t& m) {
   DBG("starting master...");
+  assert(m.width() == m.height());
 
-  // const size_t N = 11;
-  const size_t N = 100;
-  Matrix_t m{N, N};
-  fill_random(m);
-
-#if COMPARE_WITH_SEQUENTIAL
-  Matrix_t mcopy = m;
-// cout << m << endl;
-#endif
-
+  const auto N = m.height();
   const auto numtasks = MPI::COMM_WORLD.Get_size();
   const auto rows_per_task = N / (numtasks - 1);
   const auto chunk_size = rows_per_task * N;
@@ -221,13 +225,13 @@ void main_master() {
   const auto master_chunk_size = master_rows * N;
 
   {  // send chunk sizes
-    int buffer[2] = {N, static_cast<int>(rows_per_task)};
-    MPI::COMM_WORLD.Bcast(&buffer, 2, MPI_INT, MASTER_RANK);
+    int buffer[2] = {static_cast<int>(N), static_cast<int>(rows_per_task)};
+    MPI::COMM_WORLD.Bcast(&buffer, 2, MPI::INT, MASTER_RANK);
   }
   // send matrix data
   for (auto i = 1; i < numtasks; ++i) {
     auto data = m.begin_row(master_rows + (i - 1) * rows_per_task);
-    MPI::COMM_WORLD.Send(data, chunk_size, MPI_DOUBLE, i, 0);
+    MPI::COMM_WORLD.Send(data, chunk_size, MPI::DOUBLE, i, 0);
   }
 
   {  // calculate
@@ -240,16 +244,8 @@ void main_master() {
   // receive result data
   for (auto i = 1; i < numtasks; ++i) {
     auto data = m.begin_row(master_rows + (i - 1) * rows_per_task);
-    MPI::COMM_WORLD.Recv(data, chunk_size, MPI_DOUBLE, i, 0);
+    MPI::COMM_WORLD.Recv(data, chunk_size, MPI::DOUBLE, i, 0);
   }
-
-// cout << m << endl;
-
-#if COMPARE_WITH_SEQUENTIAL
-  mcopy = jacobi(mcopy, epsilon);
-  cout << "squential == parallel: " << (m == mcopy ? "true" : "false") << endl;
-// cout << endl << mcopy << endl;
-#endif
   DBG("shutting down master...");
 }
 
@@ -260,28 +256,56 @@ void main_slave(int rank) {
   size_t N, rows_per_task;
   {
     int buffer[2];
-    MPI::COMM_WORLD.Bcast(&buffer, 2, MPI_INT, MASTER_RANK);
+    MPI::COMM_WORLD.Bcast(&buffer, 2, MPI::INT, MASTER_RANK);
     N = buffer[0];
     rows_per_task = buffer[1];
   }
   const auto is_last = rank == numtasks - 1;
   const auto chunk_size = rows_per_task * N;
   Matrix_t m{rows_per_task + (is_last ? 1 : 2), N};
-  MPI::COMM_WORLD.Recv(m.begin_row(1), chunk_size, MPI_DOUBLE, MASTER_RANK, 0);
+  MPI::COMM_WORLD.Recv(m.begin_row(1), chunk_size, MPI::DOUBLE, MASTER_RANK, 0);
 
   Parallel_jacobi{rank, numtasks, m};
 
-  MPI::COMM_WORLD.Send(m.begin_row(1), chunk_size, MPI_DOUBLE, MASTER_RANK, 0);
+  MPI::COMM_WORLD.Send(m.begin_row(1), chunk_size, MPI::DOUBLE, MASTER_RANK, 0);
   DBG("shutting down slave " << rank << "...");
 }
+
 int main(int argc, char* argv[]) {
+  if (true) {
+  }
   boost::timer::auto_cpu_timer t;
   MPI::Init(argc, argv);
 
   const int rank = MPI::COMM_WORLD.Get_rank();
 
   if (rank == MASTER_RANK) {
-    main_master();
+    Matrix_t m{};
+    if (argc == 3) {
+      const size_t N = atoi(argv[1]);
+      m = Matrix_t{N, N};
+      fstream fs{argv[2]};
+      fs >> m;
+    } else {
+      // const size_t N = 11;
+      const size_t N = 100;
+      m = Matrix_t{N, N};
+      fill_random(m);
+    }
+
+#if COMPARE_WITH_SEQUENTIAL
+    Matrix_t mcopy = m;
+#endif
+    // cout << m << endl;
+    main_master(m);
+// cout << m << endl;
+
+#if COMPARE_WITH_SEQUENTIAL
+    mcopy = jacobi(mcopy, epsilon);
+    cout << "squential == parallel: " << (m == mcopy ? "true" : "false")
+         << endl;
+// cout << endl << mcopy << endl;
+#endif
   } else {
     main_slave(rank);
   }
