@@ -97,77 +97,83 @@ Matrix_t jacobi(Matrix_t u_old, double epsilon) {
 
 /*========* PARALLEL VERSION *========*/
 
-static double local_squared_diffsum(const Matrix_t& u_new,
-                                    const Matrix_t& u_old) {
-  double diff = 0;
-  for (auto i = 1u; i < u_old.height() - 1; ++i) {
-    for (auto j = 1u; j < u_old.width() - 1; ++j) {
-      diff += (u_new(i, j) - u_old(i, j)) * (u_new(i, j) - u_old(i, j));
+class Parallel_jacobi {
+ public:
+  Parallel_jacobi(int rank, int numtasks, Matrix_t& m)
+      : rank{rank}, numtasks{numtasks}, u_old{m}, u_new{m} {
+    size_t loop_count = 0;
+    while (true) {
+      ++loop_count;
+      // for (int i = 0; i < 1000; ++i) {
+      exchange_borders();
+      for (auto i = 1u; i < u_new.height() - 1; ++i) {
+        for (auto j = 1u; j < u_new.width() - 1; ++j) {
+          u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
+        }
+      }
+      swap(u_old, u_new);
+      if (is_finish()) break;
     }
+    DBG("iterations:" << loop_count << endl);
   }
-  return diff;
-}
 
-static bool is_finish(const Matrix_t& u_new, const Matrix_t& u_old, int rank) {
-  const auto diff = local_squared_diffsum(u_old, u_new);
-  double deviation;
-  MPI::COMM_WORLD.Reduce(&diff, &deviation, 1, MPI::DOUBLE, MPI::SUM,
-                         MASTER_RANK);
-  bool finish;
-  if (rank == MASTER_RANK) {
-    deviation = sqrt(deviation);
-    finish = deviation < epsilon;
-  }
-  MPI::COMM_WORLD.Bcast(&finish, 1, MPI::BOOL, MASTER_RANK);
-  return finish;
-}
-
-static void exchange_upper(Matrix_t& m, int rank) {
-  if (rank > 0) {
-    MPI::COMM_WORLD.Sendrecv(
-        m.begin_row(1), m.width(), MPI_DOUBLE, rank - 1, 0,  //
-        m.begin_row(0), m.width(), MPI_DOUBLE, rank - 1, 0);
-  }
-}
-
-static void exchange_lower(Matrix_t& m, int rank, int numtasks) {
-  if (rank != numtasks - 1) {
-    MPI::COMM_WORLD.Sendrecv(
-        m.begin_row(m.height() - 2), m.width(), MPI_DOUBLE, rank + 1, 0,  //
-        m.begin_row(m.height() - 1), m.width(), MPI_DOUBLE, rank + 1, 0);
-  }
-}
-
-static void exchange_borders(Matrix_t& m, int rank, int numtasks) {
-  if (rank % 2 == 0) {
-    exchange_upper(m, rank);
-    exchange_lower(m, rank, numtasks);
-  } else {
-    exchange_lower(m, rank, numtasks);
-    exchange_upper(m, rank);
-  }
-}
-
-void do_jacobi(Matrix_t& u_old, int rank) {
-  const auto numtasks = MPI::COMM_WORLD.Get_size();
-
-  Matrix_t u_new = u_old;
-
-  size_t loop_count = 0;
-  while (true) {
-    ++loop_count;
-    // for (int i = 0; i < 1000; ++i) {
-    exchange_borders(u_old, rank, numtasks);
-    for (auto i = 1u; i < u_new.height() - 1; ++i) {
-      for (auto j = 1u; j < u_new.width() - 1; ++j) {
-        u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
+ private:
+  double local_squared_diffsum() const {
+    double diff = 0;
+    for (auto i = 1u; i < u_old.height() - 1; ++i) {
+      for (auto j = 1u; j < u_old.width() - 1; ++j) {
+        diff += (u_new(i, j) - u_old(i, j)) * (u_new(i, j) - u_old(i, j));
       }
     }
-    swap(u_old, u_new);
-    if (is_finish(u_old, u_new, rank)) break;
+    return diff;
   }
-  DBG("iterations:" << loop_count << endl);
-}
+
+  bool is_finish() {
+    const auto diff = local_squared_diffsum();
+    double deviation;
+    MPI::COMM_WORLD.Reduce(&diff, &deviation, 1, MPI::DOUBLE, MPI::SUM,
+                           MASTER_RANK);
+    bool finish;
+    if (rank == MASTER_RANK) {
+      deviation = sqrt(deviation);
+      finish = deviation < epsilon;
+    }
+    MPI::COMM_WORLD.Bcast(&finish, 1, MPI::BOOL, MASTER_RANK);
+    return finish;
+  }
+  void exchange_upper() {
+    if (rank > 0) {
+      MPI::COMM_WORLD.Sendrecv(
+          u_old.begin_row(1), u_old.width(), MPI_DOUBLE, rank - 1, 0,  //
+          u_old.begin_row(0), u_old.width(), MPI_DOUBLE, rank - 1, 0);
+    }
+  }
+
+  void exchange_lower() {
+    if (rank != numtasks - 1) {
+      MPI::COMM_WORLD.Sendrecv(u_old.begin_row(u_old.height() - 2),
+                               u_old.width(), MPI_DOUBLE, rank + 1, 0,  //
+                               u_old.begin_row(u_old.height() - 1),
+                               u_old.width(), MPI_DOUBLE, rank + 1, 0);
+    }
+  }
+
+  void exchange_borders() {
+    if (rank % 2 == 0) {
+      exchange_upper();
+      exchange_lower();
+    } else {
+      exchange_lower();
+      exchange_upper();
+    }
+  }
+
+ private:
+  const int rank;
+  const int numtasks;
+  Matrix_t& u_old;
+  Matrix_t u_new;
+};
 
 void main_master() {
   DBG("starting master...");
@@ -183,7 +189,7 @@ void main_master() {
 #endif
 
   const auto numtasks = MPI::COMM_WORLD.Get_size();
-  const auto rows_per_task = N / (numtasks-1);
+  const auto rows_per_task = N / (numtasks - 1);
   const auto chunk_size = rows_per_task * N;
   const auto master_rows = N - (numtasks - 1) * rows_per_task;
   const auto master_chunk_size = master_rows * N;
@@ -201,7 +207,7 @@ void main_master() {
   {  // calculate
     Matrix_t m2{master_rows + 1, N};
     std::copy(m.begin_row(0), m.begin_row(0) + master_chunk_size, m2.begin());
-    do_jacobi(m2, MASTER_RANK);
+    Parallel_jacobi{MASTER_RANK, numtasks, m2};
     std::copy(m2.begin(), m2.end(), m.begin());
   }
 
@@ -237,7 +243,7 @@ void main_slave(int rank) {
   Matrix_t m{rows_per_task + (is_last ? 1 : 2), N};
   MPI::COMM_WORLD.Recv(m.begin_row(1), chunk_size, MPI_DOUBLE, MASTER_RANK, 0);
 
-  do_jacobi(m, rank);
+  Parallel_jacobi{rank, numtasks, m};
 
   MPI::COMM_WORLD.Send(m.begin_row(1), chunk_size, MPI_DOUBLE, MASTER_RANK, 0);
   DBG("shutting down slave " << rank << "...");
