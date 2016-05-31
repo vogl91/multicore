@@ -20,6 +20,7 @@ using Matrix_t = Matrix<double>;
 constexpr int MASTER_RANK = 0;
 constexpr double epsilon = 1e-4;
 #define COMPARE_WITH_SEQUENTIAL 0
+#define NON_BLOCKING 1
 
 /*========* MATRIX HELPER *========*/
 
@@ -159,6 +160,30 @@ class Parallel_jacobi {
   }
 
   void exchange_borders() {
+#if NON_BLOCKING
+    MPI::Request requests[4] = {MPI::REQUEST_NULL, MPI::REQUEST_NULL,
+                                MPI::REQUEST_NULL, MPI::REQUEST_NULL};
+    if (rank > 0) {
+      requests[0] = MPI::COMM_WORLD.Irecv(u_old.begin_row(0), u_old.width(),
+                                          MPI::DOUBLE, rank - 1, 0);
+    }
+    if (rank != numtasks - 1) {
+      requests[1] =
+          MPI::COMM_WORLD.Irecv(u_old.begin_row(u_old.height() - 1),
+                                u_old.width(), MPI_DOUBLE, rank + 1, 0);
+    }
+    if (rank > 0) {
+      requests[2] = MPI::COMM_WORLD.Isend(u_old.begin_row(1), u_old.width(),
+                                          MPI_DOUBLE, rank - 1, 0);
+    }
+    if (rank != numtasks - 1) {
+      requests[3] =
+          MPI::COMM_WORLD.Isend(u_old.begin_row(u_old.height() - 2),
+                                u_old.width(), MPI_DOUBLE, rank + 1, 0);
+    }
+    MPI::Request::Waitall(4, requests);
+
+#else
     if (rank % 2 == 0) {
       exchange_upper();
       exchange_lower();
@@ -166,6 +191,7 @@ class Parallel_jacobi {
       exchange_lower();
       exchange_upper();
     }
+#endif
   }
 
  private:
