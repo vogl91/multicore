@@ -1,10 +1,10 @@
-RUN=mpirun -n 2 ./jacobi_mpi
+RUN=mpirun -n 4 ./jacobi_mpi
 MPICXX=mpic++
 CC=gcc
 CXX=mpic++
 RM=rm -f
-CPPFLAGS=-g -std=c++11
-LDFLAGS=-g -std=c++11
+CPPFLAGS=-g -std=c++14
+LDFLAGS=-g -std=c++14
 LDLIBS=-lboost_system -lboost_timer
 
 SRCS=jacobi_mpi.cpp
