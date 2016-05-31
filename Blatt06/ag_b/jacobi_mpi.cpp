@@ -1,3 +1,6 @@
+#define DBG(str) std::cout << str << std::endl;
+// #define DBG(str)
+
 #include <mpi.h>
 
 #include <boost/timer/timer.hpp>
@@ -14,9 +17,11 @@
 #include "matrix.h"
 using Matrix_t = Matrix<double>;
 
-#define DBG(str) std::cout << (str) << std::endl;
-
 constexpr int MASTER_RANK = 0;
+constexpr double epsilon = 1e-4;
+#define COMPARE_WITH_SEQUENTIAL 0
+
+/*========* MATRIX HELPER *========*/
 
 std::ostream& operator<<(std::ostream& os, const Matrix_t& m) {
   const double max = *std::max_element(m.begin(), m.end());
@@ -43,6 +48,17 @@ void fill_random(Matrix_t& m) {
 
 using namespace std;
 
+/*========* HELPER *========*/
+
+static Matrix_t::value_t four_cell_neighbour_sum(const Matrix_t& m, size_t i,
+                                                 size_t j) {
+  assert(i < m.height() - 1);
+  assert(j < m.width() - 1);
+  return m(i + 1, j) + m(i - 1, j) + m(i, j + 1) + m(i, j - 1);
+}
+
+/*========* SEQUENTIAL VERSION *========*/
+
 static double deviation(const Matrix_t& u_new, const Matrix_t& u_old) {
   assert(u_old.height() == u_old.height());
   assert(u_old.width() == u_new.width());
@@ -56,37 +72,57 @@ static double deviation(const Matrix_t& u_new, const Matrix_t& u_old) {
   return sqrt(diff);
 }
 
-static Matrix_t::value_t four_cell_neighbour_sum(const Matrix_t& m, size_t i,
-                                                 size_t j) {
-  assert(i < m.height() - 1);
-  assert(j < m.width() - 1);
-  return m(i + 1, j) + m(i - 1, j) + m(i, j + 1) + m(i, j - 1);
-}
-
 Matrix_t jacobi(Matrix_t u_old, double epsilon) {
   assert(u_old.width() == u_old.height());
   Matrix_t u_new = u_old;
 
   const auto N = u_old.height() - 1;
   size_t loop_count = 0;
-  // while (true) {
-  for(int i=0;i<1000;++i) {
+  while (true) {
+    // for (int i = 0; i < 1000; ++i) {
     ++loop_count;
     for (auto i = 1u; i < N; ++i) {
       for (auto j = 1u; j < N; ++j) {
         u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
       }
     }
-    // if (deviation(u_new, u_old) < epsilon) break;
+    if (deviation(u_new, u_old) < epsilon) break;
     Matrix_t& tmp = u_old;
     u_old = u_new;
     u_new = tmp;
   }
-  cout << "iterations:" << loop_count << endl << endl;
+  DBG("iterations:" << loop_count << endl);
   return u_new;
 }
 
-void exchange_upper(Matrix_t& m, int rank) {
+/*========* PARALLEL VERSION *========*/
+
+static double local_squared_diffsum(const Matrix_t& u_new,
+                                    const Matrix_t& u_old) {
+  double diff = 0;
+  for (auto i = 1u; i < u_old.height() - 1; ++i) {
+    for (auto j = 1u; j < u_old.width() - 1; ++j) {
+      diff += (u_new(i, j) - u_old(i, j)) * (u_new(i, j) - u_old(i, j));
+    }
+  }
+  return diff;
+}
+
+static bool is_finish(const Matrix_t& u_new, const Matrix_t& u_old, int rank) {
+  const auto diff = local_squared_diffsum(u_old, u_new);
+  double deviation;
+  MPI::COMM_WORLD.Reduce(&diff, &deviation, 1, MPI::DOUBLE, MPI::SUM,
+                         MASTER_RANK);
+  bool finish;
+  if (rank == MASTER_RANK) {
+    deviation = sqrt(deviation);
+    finish = deviation < epsilon;
+  }
+  MPI::COMM_WORLD.Bcast(&finish, 1, MPI::BOOL, MASTER_RANK);
+  return finish;
+}
+
+static void exchange_upper(Matrix_t& m, int rank) {
   if (rank > 0) {
     MPI::COMM_WORLD.Sendrecv(
         m.begin_row(1), m.width(), MPI_DOUBLE, rank - 1, 0,  //
@@ -94,7 +130,7 @@ void exchange_upper(Matrix_t& m, int rank) {
   }
 }
 
-void exchange_lower(Matrix_t& m, int rank, int numtasks) {
+static void exchange_lower(Matrix_t& m, int rank, int numtasks) {
   if (rank != numtasks - 1) {
     MPI::COMM_WORLD.Sendrecv(
         m.begin_row(m.height() - 2), m.width(), MPI_DOUBLE, rank + 1, 0,  //
@@ -102,7 +138,7 @@ void exchange_lower(Matrix_t& m, int rank, int numtasks) {
   }
 }
 
-void exchange_borders(Matrix_t& m, int rank, int numtasks) {
+static void exchange_borders(Matrix_t& m, int rank, int numtasks) {
   if (rank % 2 == 0) {
     exchange_upper(m, rank);
     exchange_lower(m, rank, numtasks);
@@ -112,38 +148,42 @@ void exchange_borders(Matrix_t& m, int rank, int numtasks) {
   }
 }
 
-constexpr double epsilon = 0.0001;
 void do_jacobi(Matrix_t& u_old, int rank) {
   const auto numtasks = MPI::COMM_WORLD.Get_size();
 
   Matrix_t u_new = u_old;
 
-  // while (true) {
-  for(int i=0;i<1000;++i) {
+  size_t loop_count = 0;
+  while (true) {
+    ++loop_count;
+    // for (int i = 0; i < 1000; ++i) {
     exchange_borders(u_old, rank, numtasks);
     for (auto i = 1u; i < u_new.height() - 1; ++i) {
       for (auto j = 1u; j < u_new.width() - 1; ++j) {
         u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
       }
     }
-    auto delta = deviation(u_new, u_old);
     swap(u_old, u_new);
-    // if (delta < epsilon) break;
+    if (is_finish(u_old, u_new, rank)) break;
   }
+  DBG("iterations:" << loop_count << endl);
 }
 
 void main_master() {
-  cout << "starting master..." << endl;
+  DBG("starting master...");
 
-  const size_t N = 11;
+  // const size_t N = 11;
+  const size_t N = 100;
   Matrix_t m{N, N};
   fill_random(m);
 
+#if COMPARE_WITH_SEQUENTIAL
   Matrix_t mcopy = m;
-  cout << m << endl;
+// cout << m << endl;
+#endif
 
   const auto numtasks = MPI::COMM_WORLD.Get_size();
-  const auto rows_per_task = N / numtasks + (N % numtasks != 0);
+  const auto rows_per_task = N / (numtasks-1);
   const auto chunk_size = rows_per_task * N;
   const auto master_rows = N - (numtasks - 1) * rows_per_task;
   const auto master_chunk_size = master_rows * N;
@@ -171,14 +211,18 @@ void main_master() {
     MPI::COMM_WORLD.Recv(data, chunk_size, MPI_DOUBLE, i, 0);
   }
 
-  cout << m << endl;
+// cout << m << endl;
 
-  mcopy = jacobi(mcopy,0.0001);
-  cout << (m == mcopy) << endl;
+#if COMPARE_WITH_SEQUENTIAL
+  mcopy = jacobi(mcopy, epsilon);
+  cout << "squential == parallel: " << (m == mcopy ? "true" : "false") << endl;
+// cout << endl << mcopy << endl;
+#endif
+  DBG("shutting down master...");
 }
 
 void main_slave(int rank) {
-  cout << "starting slave " << rank << "..." << endl;
+  DBG("starting slave " << rank << "...");
 
   const auto numtasks = MPI::COMM_WORLD.Get_size();
   size_t N, rows_per_task;
@@ -196,7 +240,7 @@ void main_slave(int rank) {
   do_jacobi(m, rank);
 
   MPI::COMM_WORLD.Send(m.begin_row(1), chunk_size, MPI_DOUBLE, MASTER_RANK, 0);
-  cout << "shutting down slave " << rank << "..." << endl;
+  DBG("shutting down slave " << rank << "...");
 }
 int main(int argc, char* argv[]) {
   boost::timer::auto_cpu_timer t;

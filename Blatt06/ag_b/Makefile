@@ -1,4 +1,5 @@
-RUN=mpirun -n 4 ./jacobi_mpi
+RUN=mpirun  -np 16 -hostfile n3027_hostfile ./jacobi_mpi
+# RUN=mpirun -n 4 ./jacobi_mpi
 MPICXX=mpic++
 CC=gcc
 CXX=mpic++

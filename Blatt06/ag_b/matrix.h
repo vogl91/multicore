@@ -109,7 +109,7 @@ bool operator==(const Matrix<T>& lhs, const Matrix<T>& rhs) {
   if (lhs.width() != rhs.width())
     return false;
   else
-    return std::equal(lhs.begin(), lhs.end(), rhs.begin(), lhs.end());
+    return std::equal(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
 }
 
 template <typename T>
