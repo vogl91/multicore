@@ -1,14 +1,14 @@
-# RUN=mpirun  -np 16 -hostfile n3027_hostfile ./jacobi_thrds
-RUN=mpirun  -np 16 -hostfile n3027_hostfile ./jacobi_thrds 100 matrix.txt
+# RUN=mpirun  -np 16 -hostfile n3027_hostfile ./jacobi_thrds 100
+RUN=mpirun -np 16 -hostfile n3027_hostfile ./jacobi_thrds 100 matrix.txt
 # RUN=./create_matrix 100 > matrix.txt
 # RUN=mpirun -n 4 ./jacobi_thrds
 MPICXX=mpic++
 CC=gcc
-CXX=mpic++
+CXX=mpic++ -fopenmp
 RM=rm -f
-CPPFLAGS=-g -std=c++14
-LDFLAGS=-g -std=c++14
-LDLIBS=-lboost_system -lboost_timer
+CPPFLAGS=-g -std=c++14 -O2
+LDFLAGS=-g -std=c++14 -O2
+LDLIBS=-lboost_system -lboost_timer -lgomp
 
 SRCS=jacobi_thrds.cpp
 OBJS=$(subst .cpp,.o,$(SRCS))

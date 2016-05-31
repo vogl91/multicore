@@ -1,7 +1,10 @@
 #define DBG(str) std::cout << str << std::endl;
 // #define DBG(str)
 
+#define OMP_NUM_THREADS 4
+
 #include <mpi.h>
+#include <omp.h>
 
 #include <boost/timer/timer.hpp>
 
@@ -10,20 +13,56 @@
 #include <cstring>
 
 #include <algorithm>
+#include <condition_variable>
 #include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <random>
+#include <thread>
+#include <vector>
 
 #include "matrix.h"
 using Matrix_t = Matrix<double>;
 
 constexpr int MASTER_RANK = 0;
 constexpr double epsilon = 1e-4;
+constexpr size_t numthreads = 4;
 #define COMPARE_WITH_SEQUENTIAL 0
 #define NON_BLOCKING 1
-#define LOAD_FROM_FILE 1
+#define USE_THREADS 1
+
+void join_all(std::vector<std::thread>& threads) {
+  for (auto& t : threads) {
+    if (t.joinable()) t.join();
+  }
+}
+
+class Barrier {
+ public:
+  explicit Barrier(std::size_t iCount)
+      : mThreshold(iCount), mCount(iCount), mGeneration(0) {}
+
+  void Wait() {
+    auto lGen = mGeneration;
+    std::unique_lock<std::mutex> lLock{mMutex};
+    if (!--mCount) {
+      mGeneration++;
+      mCount = mThreshold;
+      mCond.notify_all();
+    } else {
+      mCond.wait(lLock, [this, lGen] { return lGen != mGeneration; });
+    }
+  }
+
+ private:
+  std::mutex mMutex;
+  std::condition_variable mCond;
+  std::size_t mThreshold;
+  std::size_t mCount;
+  std::size_t mGeneration;
+};
 
 /*========* MATRIX HELPER *========*/
 
@@ -114,11 +153,17 @@ class Parallel_jacobi {
  public:
   Parallel_jacobi(int rank, int numtasks, Matrix_t& m)
       : rank{rank}, numtasks{numtasks}, u_old{m}, u_new{m} {
+#if USE_THREADS
+    omp_set_num_threads(OMP_NUM_THREADS);
+#endif
     size_t loop_count = 0;
     while (true) {
       ++loop_count;
       // for (int i = 0; i < 1000; ++i) {
       exchange_borders();
+#if USE_THREADS
+#pragma omp parallel for
+#endif
       for (auto i = 1u; i < u_new.height() - 1; ++i) {
         for (auto j = 1u; j < u_new.width() - 1; ++j) {
           u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
@@ -129,6 +174,58 @@ class Parallel_jacobi {
     }
     DBG("iterations:" << loop_count << endl);
   }
+  // Parallel_jacobi(int rank, int numtasks, Matrix_t& m)
+  //     : rank{rank}, numtasks{numtasks}, u_old{m}, u_new{m} {
+  //   thread_finish = false;
+  //   Barrier barrier{numthreads};
+  //   vector<thread> threads;
+  //   for (auto i = 0; i < numthreads - 1; ++i) {
+  //     threads.push_back(thread{&Parallel_jacobi::foo, this, i, &barrier});
+  //   }
+
+  //   const auto num_rows = (u_old.height() - 2) / numthreads;
+  //   const auto start_row = 1u + (numthreads - 1) * num_rows;
+  //   const auto end_row = u_old.height() - 2;
+  //   size_t loop_count = 0;
+  //   while (true) {
+  //     ++loop_count;
+
+  //     exchange_borders();
+  //     barrier.Wait();
+
+  //     for (auto i = start_row; i < end_row; ++i) {
+  //       for (auto j = 1u; j < u_new.width() - 1; ++j) {
+  //         u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
+  //       }
+  //     }
+
+  //     barrier.Wait();
+  //     swap(u_old, u_new);
+  //     if (is_finish()) break;
+  //     barrier.Wait();
+  //   }
+  //   DBG("iterations:" << loop_count << endl);
+  //   thread_finish = true;
+  //   barrier.Wait();
+  //   join_all(threads);
+  // }
+
+ private:
+  // void foo(int index, Barrier* b) {
+  //   const auto num_rows = (u_old.height() - 2) / numthreads;
+  //   const auto start_row = 1u + index * num_rows;
+  //   const auto end_row = start_row + num_rows;
+  //   while (!thread_finish) {
+  //     b->Wait();
+  //     for (auto i = start_row; i < end_row; ++i) {
+  //       for (auto j = 1u; j < u_new.width() - 1; ++j) {
+  //         u_new(i, j) = four_cell_neighbour_sum(u_old, i, j) / 4;
+  //       }
+  //     }
+  //     b->Wait();
+  //     b->Wait();
+  //   }
+  // }
 
  private:
   double local_squared_diffsum() const {
@@ -211,6 +308,7 @@ class Parallel_jacobi {
   const int numtasks;
   Matrix_t& u_old;
   Matrix_t u_new;
+  bool thread_finish;
 };
 
 void main_master(Matrix_t& m) {
@@ -271,25 +369,26 @@ void main_slave(int rank) {
   DBG("shutting down slave " << rank << "...");
 }
 
+/*========* MAIN *========*/
+
 int main(int argc, char* argv[]) {
-  if (true) {
-  }
   boost::timer::auto_cpu_timer t;
   MPI::Init_thread(argc, argv, MPI::THREAD_FUNNELED);
 
   const int rank = MPI::COMM_WORLD.Get_rank();
 
   if (rank == MASTER_RANK) {
-    Matrix_t m{};
+    if (argc < 2) {
+      return 1;
+    }
+
+    const size_t N = atoi(argv[1]);
+    Matrix_t m{N, N};
     if (argc == 3) {
-      const size_t N = atoi(argv[1]);
       m = Matrix_t{N, N};
       fstream fs{argv[2]};
       fs >> m;
     } else {
-      // const size_t N = 11;
-      const size_t N = 100;
-      m = Matrix_t{N, N};
       fill_random(m);
     }
 

@@ -272,8 +272,6 @@ void main_slave(int rank) {
 }
 
 int main(int argc, char* argv[]) {
-  if (true) {
-  }
   boost::timer::auto_cpu_timer t;
   MPI::Init(argc, argv);
 
